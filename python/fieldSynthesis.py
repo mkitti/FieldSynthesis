@@ -4,6 +4,7 @@ import scipy.fftpack as ft
 import scipy.signal as sig
 from scipy.stats import norm
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 ''' Field Synthesis
 Python-based demonstration of Field Synthesis
@@ -119,14 +120,17 @@ def doFieldSynthesisLineScan(F_hat,L_hat):
 
     return fieldSynthesis
 
-def demoFieldSynthesis():
+def demoFieldSynthesis(animate=False):
     '''Demonstrate Field Synthesis Method with Plots
         INPUT
-         None
+         animate- boolean, if true, animate the figure
         OUTPUT
          None
     '''
     # plt.rc('text', usetex=True)
+#    if animate:
+#        plt.ion()
+
     fig, ax = plt.subplots(2,4,sharey=True,sharex=True,figsize=(16,9))
 
     # Create F, the illumination pattern
@@ -142,7 +146,7 @@ def demoFieldSynthesis():
     #plt.imshow(Fsqmod, cmap='plasma')
     #plt.show(block=False)
     ax[0,0].imshow(Fsqmod, cmap='plasma')
-    ax[0,0].set_title('F(x,z)')
+    ax[0,0].set_title('|F(x,z)|^2')
 
     # Create L, the scan profile
     L = np.zeros_like(Fsqmod)
@@ -190,9 +194,53 @@ def demoFieldSynthesis():
 
     ax[1,3].imshow(fieldSynthesis, cmap='plasma')
     ax[1,3].set_title('Field Synthesis: $ \sum_a |\mathcal{F}^{-1}\{ \hat{F}(k_x,k_z)\hat{L}(k_x-a) \}|^2 $')
+    if animate:
+        L2 = Lsqmod[Lsqmod.shape[0]//2,]
+        maxL2 = np.max(L2)
+        frames = np.flatnonzero(L2 > maxL2/100)
+        ani = animation.FuncAnimation(fig,updateFig,frames,fargs=(ax,frames[0],Fsqmod,L2),repeat=True,interval=100)
 
+        A = ft.fftshift(F_hat)
+        fs_frames = np.flatnonzero(np.any(A,0))
+        ani2 = animation.FuncAnimation(fig,fsUpdate,fs_frames,fargs=(ax,fs_frames[0],A,L_hat),repeat=True)
+
+        ani.save('test.mp4')
+        ani2.save('test2.mp4')
     plt.show()
     plt.pause(0.001)
+    
+
+def updateFig(frame,ax,first,Fsqmod,L2):
+    Fsqmod_im = ax[0,0].get_images()[0]
+    im = ax[1,0].get_images()[0]
+    global I
+    if frame==first:
+        I = np.zeros_like(Fsqmod)
+
+    Fsqmod = np.roll(Fsqmod,frame-Fsqmod.shape[0]//2,1)
+    I = I + L2[frame]*Fsqmod
+    Fsqmod_im.set_array(Fsqmod)
+    im.set_array(np.real(I))
+    return im,Fsqmod_im
+
+
+def fsUpdate(frame,ax,first,A,L_hat):
+    global FS
+    L_hat_im = ax[0,3].get_images()[0]
+    fs_im = ax[1,3].get_images()[0]
+    if frame==first:
+        FS = np.zeros(A.shape)
+
+    T_a_hat = A*np.roll(L_hat,frame-L_hat.shape[0]//2,1)
+    L_hat_im.set_array(np.abs(T_a_hat))
+    T_a_hat = ft.ifftshift(T_a_hat)
+    T_a = ft.fftshift( ft.fft2(T_a_hat) )
+    FS = FS + np.abs(T_a)**2
+    fs_im.set_array(FS)
+    return L_hat_im,fs_im
+
+
+
 
 if __name__ == "__main__":
-    demoFieldSynthesis()
+    demoFieldSynthesis(True)
