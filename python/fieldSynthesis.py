@@ -3,8 +3,11 @@ import scipy as sci
 import scipy.fftpack as ft
 import scipy.signal as sig
 from scipy.stats import norm
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.cm as cm
+import matplotlib.colors as colors
 import sys
 import argparse
 import pdb
@@ -72,7 +75,7 @@ def createLatticeHat(n=256, r=32, w=4, s=24):
     '''
     annulus = createAnnulus(n,r,w);
     latticeHat = np.zeros_like(annulus);
-    center = n//2 + 1
+    center = n//2
     columns = (center-s,center,center+s)
     latticeHat[:,columns] = annulus[:,columns]
     return latticeHat;
@@ -128,15 +131,21 @@ def doFieldSynthesisLineScan(F_hat,L_hat):
     # Do the Field Synthesis method of performing a line scan at the back focal plane
     fieldSynthesis = np.zeros_like(F_hat)
 
+    max_T_a = 0
+
     for a in range(fieldSynthesis.shape[1]):
         # Instaneous scan in frequency space
-        T_hat_a = F_hat * np.roll(L_hat,a-fieldSynthesis.shape[1]//2,1)
+        T_hat_a = F_hat * np.roll(L_hat,a-F_hat.shape[1]//2,1)
         # Instaneous scan in object space
         T_a = ft.fftshift( ft.fft2( ft.ifftshift(T_hat_a) ) )
+        # Instaneous intensity
+        T_a_sqmod = np.abs(T_a)**2
+        # Track maximum value
+        max_T_a = max(np.amax(T_a_sqmod),max_T_a)
         # Incoherent summing of the intensities
-        fieldSynthesis = fieldSynthesis + np.abs(T_a)**2
+        fieldSynthesis = fieldSynthesis + T_a_sqmod
 
-    return fieldSynthesis
+    return fieldSynthesis,max_T_a
 
 def demoFieldSynthesis(animate=False,F_hat=None):
     '''Demonstrate Field Synthesis Method with Plots
@@ -148,13 +157,11 @@ def demoFieldSynthesis(animate=False,F_hat=None):
     # plt.rc('text', usetex=True)
 #    if animate:
 #        plt.ion()
-    plt.style.use('dark_background');
+    # Style the figure
+    # plt.style.use('dark_background');
     colormap = 'gnuplot2'
 
     fig, ax = plt.subplots(2,4,sharey=True,sharex=True,figsize=(16,9))
-
-    # Style the figure
-    #fig.patch.set_facecolor('black');
 
     # Create F, the illumination pattern
     if F_hat is None:
@@ -168,9 +175,9 @@ def demoFieldSynthesis(animate=False,F_hat=None):
 
     #plt.figure()
     #plt.title('F')
-    #plt.imshow(Fsqmod, cmap=colormap)
+    #plt.imshow(Fsqmod)
     #plt.show(block=False)
-    ax[0,0].imshow(Fsqmod, cmap=colormap)
+    ax[0,0].imshow(Fsqmod)
     ax[0,0].set_title('|F(x,z)|^2')
 
     # Create L, the scan profile
@@ -185,26 +192,26 @@ def demoFieldSynthesis(animate=False,F_hat=None):
     L_hat = ft.fftshift(ft.fft2(ft.ifftshift(L)))
     L_hat_abs = np.abs(L_hat)
 
-    ax[0,1].imshow(L, cmap=colormap)
+    ax[0,1].imshow(L)
     ax[0,1].set_title('$ L(x)\delta(z) $')
 
-    ax[0,2].imshow(Lsqmod, cmap=colormap)
+    ax[0,2].imshow(Lsqmod)
     ax[0,2].set_title('$ |L(x)\delta(z)|^2 $')
 
-    ax[0,3].imshow(np.abs(L_hat), cmap=colormap)
+    ax[0,3].imshow(np.abs(L_hat))
     ax[0,3].set_title('$\hat{L}(k_x) $')
 
     # Manually scan by shifting Fsqmod and multiplying by Lsqmod
     scanned = doConventionalScan(Fsqmod,Lsqmod)
 
-    ax[1,0].imshow(scanned, cmap=colormap)
+    ax[1,0].imshow(scanned)
     ax[1,0].set_title('Scanned: $ \sum_{x\'} |F(x\',z)|^2|L(x-x\')|^2 $')
 
     # Manually scanning is a convolution operation
     # There are potentially boundary effects here
     convolved = sig.fftconvolve(Fsqmod,Lsqmod,'same')
 
-    ax[1,1].imshow(convolved, cmap=colormap)
+    ax[1,1].imshow(convolved)
     ax[1,1].set_title('Conv: $ |F(x,z)|^2 ** |L(x)\delta(z)|^2 $')
 
     # This manual implementation of Fourier transform based convolution
@@ -212,13 +219,13 @@ def demoFieldSynthesis(animate=False,F_hat=None):
     convolvedft = ft.fftshift(ft.fft2(ft.ifft2(ft.ifftshift(Fsqmod)) *ft.ifft2(ft.ifftshift(Lsqmod))))
     convolvedft = np.real(convolvedft)
 
-    ax[1,2].imshow(convolvedft, cmap=colormap)
+    ax[1,2].imshow(convolvedft)
     ax[1,2].set_title(r'Conv. FT: $ \mathcal{F}^{-1} \{ \mathcal{F}\{|F|^2\} \mathcal{F}\{|L(x)\delta(z)|^2\} \} $')
 
     # Do the Field Synthesis method of performing a line scan at the back focal plane
-    fieldSynthesis = doFieldSynthesisLineScan(F_hat,L_hat)
+    fieldSynthesis,a = doFieldSynthesisLineScan(F_hat,L_hat)
 
-    ax[1,3].imshow(fieldSynthesis, cmap=colormap)
+    ax[1,3].imshow(fieldSynthesis)
     ax[1,3].set_title('FS: $ \sum_a |\mathcal{F}^{-1}\{ \hat{F}(k_x,k_z)\hat{L}(k_x-a) \}|^2 $')
 #    pdb.set_trace()
     if animate:
@@ -235,8 +242,11 @@ def demoFieldSynthesis(animate=False,F_hat=None):
         fs_frames = fs_frames.flatten()
         fs_frames = np.unique(np.asarray(fs_frames)).flatten()
         #ani2 = animation.FuncAnimation(fig,fsUpdate,fs_frames,fargs=(ax,fs_frames[0],A,L_hat),repeat=True,interval=100)
-        lcm = np.lcm(len(frames),len(fs_frames))
-        anilcm = animation.FuncAnimation(fig,commonUpdate,lcm, \
+        #nFrames = np.lcm(len(frames),len(fs_frames))
+        #updateMethod = commonLCMUpdate
+        nFrames = max(len(frames),len(fs_frames))
+        updateMethod = commonMaxUpdate
+        anilcm = animation.FuncAnimation(fig,updateMethod,nFrames, \
                 fargs=(ax[(0,1),0],frames,Fsqmod,L2, \
                        ax[(0,1),3],fs_frames,A,L_hat), \
                 repeat=True,interval=100)
@@ -244,16 +254,146 @@ def demoFieldSynthesis(animate=False,F_hat=None):
 
     return fig,ax
 
+def retoMovie(animate=False,F_hat=None):
+    '''Make a movie like Tweeted by @RetoPaul (Reto Fiolka'''
+    # Style the figure
+    # plt.style.use('dark_background');
+    colormap = 'gnuplot2'
 
-def commonUpdate(frame,ax,frames,Fsqmod,L2,fs_ax,fsFrames,A,L_hat):
+    fig, ax = plt.subplots(2,3,sharey=True,sharex=True,figsize=(16,9))
+
+    # Create F, the illumination pattern
+    if F_hat is None:
+        F_hat = createAnnulus()
+#        F_hat = createLatticeHat();
+    F_hat = ft.ifftshift(F_hat)
+    F = ft.ifft2(F_hat)
+    F = ft.fftshift(F)
+    # This is the illumination intensity pattern
+    Fsqmod = np.real(F*np.conj(F))
+
+    #plt.figure()
+    #plt.title('F')
+    #plt.imshow(Fsqmod)
+    #plt.show(block=False)
+    ax[0,0].imshow(ft.fftshift(F_hat))
+    #ax[0,0].set_title('Scanned / Dithered',loc='left')
+    ax[0,0].set_ylabel('Scanned / Dithered')
+
+    ax[0,1].imshow(Fsqmod)
+    #ax[0,1].set_title('|F(x,z)|^2')
+
+    # Create L, the scan profile
+    L = np.zeros_like(Fsqmod)
+    center = L.shape[1]//2
+    sigma = 30
+    L[center,:] = norm.pdf(np.arange(-center,center),0,sigma)
+    # L[L.shape[1]//2,:] = 1
+    # The square modulus of L is the object space
+    Lsqmod = L*np.conj(L)
+    # This is the line scan profile used in Field Synthesis
+    L_hat = ft.fftshift(ft.fft2(ft.ifftshift(L)))
+    L_hat_abs = np.abs(L_hat)
+
+    #ax[0,1].imshow(L)
+    #ax[0,1].set_title('$ L(x)\delta(z) $')
+
+    #ax[0,2].imshow(Lsqmod)
+    #ax[0,2].set_title('$ |L(x)\delta(z)|^2 $')
+
+    ax[1,0].imshow(np.abs(L_hat))
+    #ax[1,0].set_title('Field Synthesis',loc='left')
+    ax[1,0].set_ylabel('Field Synthesis')
+    ax[1,0].set_xlabel('Fourier space')
+
+    # Manually scan by shifting Fsqmod and multiplying by Lsqmod
+    scanned = doConventionalScan(Fsqmod,Lsqmod)
+
+    ax[0,2].imshow(scanned)
+    #ax[0,2].set_title('Scanned: $ \sum_{x\'} |F(x\',z)|^2|L(x-x\')|^2 $')
+
+    # Manually scanning is a convolution operation
+    # There are potentially boundary effects here
+    convolved = sig.fftconvolve(Fsqmod,Lsqmod,'same')
+
+    # ax[1,1].imshow(convolved)
+    # ax[1,1].set_title('Conv: $ |F(x,z)|^2 ** |L(x)\delta(z)|^2 $')
+
+    # This manual implementation of Fourier transform based convolution
+    # actually does circular convolution
+    convolvedft = ft.fftshift(ft.fft2(ft.ifft2(ft.ifftshift(Fsqmod)) *ft.ifft2(ft.ifftshift(Lsqmod))))
+    convolvedft = np.real(convolvedft)
+
+    # ax[1,2].imshow(convolvedft)
+    # ax[1,2].set_title(r'Conv. FT: $ \mathcal{F}^{-1} \{ \mathcal{F}\{|F|^2\} \mathcal{F}\{|L(x)\delta(z)|^2\} \} $')
+
+
+    # Do the Field Synthesis method of performing a line scan at the back focal plane
+    fieldSynthesis,max_T_a = doFieldSynthesisLineScan(F_hat,L_hat)
+
+    T_a_hat = ft.fftshift(F_hat)*L_hat
+    T_a_hat = ft.ifftshift(T_a_hat)
+    T_a = ft.fftshift( ft.fft2(T_a_hat) )
+    T_a = np.abs(T_a)**2
+
+    ax[1,1].imshow(T_a,vmax=max_T_a)
+    ax[1,1].set_xlabel('Real space\ninstantaneous')
+
+    ax[1,2].imshow(fieldSynthesis)
+    ax[1,2].set_xlabel('Real space\ntime averaged')
+    #ax[1,2].set_title('FS: $ \sum_a |\mathcal{F}^{-1}\{ \hat{F}(k_x,k_z)\hat{L}(k_x-a) \}|^2 $')
+#    pdb.set_trace()
+    if animate:
+        L2 = Lsqmod[Lsqmod.shape[0]//2,]
+        maxL2 = np.max(L2)
+        frames = np.flatnonzero(L2 > maxL2/100)
+        #ani = animation.FuncAnimation(fig,scanUpdate,frames,fargs=(ax,frames[0],Fsqmod,L2),repeat=True,interval=100)
+
+        A = ft.fftshift(F_hat)
+        maxL_hat = np.max(L_hat_abs[0,])
+        L_hat_idx = np.transpose(np.asmatrix(np.flatnonzero(L_hat_abs[0,] > maxL_hat/1e3))) - center
+        fs_frames = np.asmatrix(np.flatnonzero(np.any(A,0)))
+        fs_frames = fs_frames + L_hat_idx 
+        fs_frames = fs_frames.flatten()
+        fs_frames = np.unique(np.asarray(fs_frames)).flatten()
+        #ani2 = animation.FuncAnimation(fig,fsUpdate,fs_frames,fargs=(ax,fs_frames[0],A,L_hat),repeat=True,interval=100)
+        #nFrames = np.lcm(len(frames),len(fs_frames))
+        #updateMethod = commonLCMUpdate
+        nFrames = max(len(frames),len(fs_frames))
+        updateMethod = commonMaxUpdate
+        anilcm = animation.FuncAnimation(fig,updateMethod,nFrames, \
+                fargs=(ax[0,(1,2)],frames,Fsqmod,L2, \
+                       ax[1,(0,2,1)],fs_frames,A,L_hat), \
+                repeat=True,interval=100)
+    else:
+        anilcm = None
+
+    return fig,ax,anilcm
+
+
+
+
+def commonLCMUpdate(frame,ax,frames,Fsqmod,L2,fs_ax,fsFrames,A,L_hat):
     '''commonUpdate updates animation for scanning and
-    field synthesis
+    field synthesis for least common multiple frames
     '''
     f1 = frames[frame%len(frames)]
     f2 = fsFrames[frame%len(fsFrames)]
-    im,Fsqmod_im   = scanUpdate(f1,ax,frames[0],Fsqmod,L2)
-    L_hat_im,fs_im = fsUpdate(f2,fs_ax,fsFrames[0],A,L_hat)
-    return im,Fsqmod_im,L_hat_im,fs_im
+    scan_out  = scanUpdate(f1,ax,frames[0],Fsqmod,L2)
+    fs_out = fsUpdate(f2,fs_ax,fsFrames[0],A,L_hat)
+    return scan_out + fs_out
+
+def commonMaxUpdate(frame,ax,frames,Fsqmod,L2,fs_ax,fsFrames,A,L_hat):
+    '''commonUpdate updates animation for scanning and
+    field synthesis for the greater number of frames
+    '''
+    scan_out = ()
+    fs_out = ()
+    if frame < len(frames):
+        scan_out  = scanUpdate(frames[frame],ax,frames[0],Fsqmod,L2)
+    if frame < len(fsFrames):
+        fs_out = fsUpdate(fsFrames[frame],fs_ax,fsFrames[0],A,L_hat)
+    return scan_out + fs_out
 
 def scanUpdate(frame,ax,first,Fsqmod,L2):
     '''scanUpdate updates scanning for animation
@@ -266,7 +406,7 @@ def scanUpdate(frame,ax,first,Fsqmod,L2):
 
     Fsqmod = np.roll(Fsqmod,frame-Fsqmod.shape[0]//2,1)
     I = I + L2[frame]*Fsqmod
-    Fsqmod_im.set_array(Fsqmod)
+    Fsqmod_im.set_array(Fsqmod*L2[frame]/np.max(L2))
     im.set_array(np.real(I))
     return im,Fsqmod_im
 
@@ -284,9 +424,26 @@ def fsUpdate(frame,ax,first,A,L_hat):
     L_hat_im.set_array(np.abs(T_a_hat))
     T_a_hat = ft.ifftshift(T_a_hat)
     T_a = ft.fftshift( ft.fft2(T_a_hat) )
-    FS = FS + np.abs(T_a)**2
+    T_a = np.abs(T_a)**2
+    FS = FS + T_a
     fs_im.set_array(FS)
-    return L_hat_im,fs_im
+    if len(ax) > 2:
+        ta_im = ax[2].get_images()[0]
+        ta_im.set_array(T_a)
+        return L_hat_im,fs_im,ta_im
+    else:
+        return L_hat_im,fs_im
+
+def applyRetoStyle():
+    '''applyRetoStyle uses white text on a black background
+    and does not show any frames, ticks, or labels'''
+    plt.style.use('dark_background');
+    mpl.rcParams['axes.edgecolor'] = 'black';
+    mpl.rcParams['xtick.color'] = 'black';
+    mpl.rcParams['ytick.color'] = 'black';
+    mpl.rcParams['axes.labelsize'] = 'large';
+    mpl.rcParams['image.cmap'] = 'gnuplot2'
+#    mpl.rcParams['image.interpolation'] = 'bicubic';
 
 
 
@@ -306,16 +463,45 @@ if __name__ == "__main__":
     parser.add_argument('--show','-s',action='store_true',default=True)
     parser.add_argument('--no-show','-ns',dest='show',action='store_false')
     parser.add_argument('--mask',default='bessel',choices=masks)
+    parser.add_argument('--zoom',default=1.0,type=float)
+    parser.add_argument('--proof',action='store_true',default=True)
+    parser.add_argument('--reto',action='store_true',default=False)
+    parser.add_argument('--anti',action='store_true',default=True)
     args = parser.parse_args()
 
-    pdb.set_trace()
+    #pdb.set_trace()
 
     mask = masks[args.mask]()
 
+    if args.anti:
+        mask = mask.astype('float')
+        center = mask.shape[0]//2
+        mask[center+1:,] = -mask[center+1:,]
 
-    fig,ax,anilcm = demoFieldSynthesis(args.animate,mask)
+    # pdb.set_trace()
+ 
+    if args.reto:
+        applyRetoStyle()
+        fig,ax,anilcm = retoMovie(args.animate,mask)
+        if args.anti:
+            darkcm = colors.ListedColormap([1,1,1,2] - cm.get_cmap('PiYG')(np.linspace(0,1,256)))
+            ax[0,0].get_images()[0].set_cmap(darkcm)
+    elif args.proof:
+        fig,ax,anilcm = demoFieldSynthesis(args.animate,mask)
 
-    if args.movie:
+    if args.zoom > 1:
+        xmin,xmax,ymin,ymax = plt.axis()
+        xr = xmax-xmin
+        yr = ymax-ymin
+        zf = 0.5-0.5/args.zoom
+        plt.axis((xmin+xr*zf,xmax-xr*zf,ymin+yr*zf,ymax-yr*zf))
+
+    #for axx in ax.flatten():
+    #    plt.setp(axx.spines.values(),color='black')
+    #    plt.setp([axx.get_xticklines(), axx.get_yticklines()],color='black')
+    #    plt.setp([axx.get_xticklabels(), axx.get_yticklabels()],color='black')
+
+    if args.movie and anilcm is not None:
         anilcm.save(args.movie)
 
     if args.show:
