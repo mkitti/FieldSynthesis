@@ -466,7 +466,7 @@ if __name__ == "__main__":
     parser.add_argument('--zoom',default=1.0,type=float)
     parser.add_argument('--proof',action='store_true',default=True)
     parser.add_argument('--reto',action='store_true',default=False)
-    parser.add_argument('--anti',action='store_true',default=True)
+    parser.add_argument('--anti',action='store_true',default=False)
     args = parser.parse_args()
 
     #pdb.set_trace()
