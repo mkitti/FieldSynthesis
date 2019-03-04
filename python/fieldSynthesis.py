@@ -5,6 +5,9 @@ import scipy.signal as sig
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import sys
+import argparse
+import pdb
 
 ''' Field Synthesis
 Python-based demonstration of Field Synthesis
@@ -58,6 +61,21 @@ def createAnnulus(n=256, r=32, w=4):
     q = np.hypot(x,y)
     annulus = abs(q-r) < w
     return annulus
+
+def createLatticeHat(n=256, r=32, w=4, s=24):
+    ''' createLatticeHat - adapt annulus for a lattice configuration
+    INPUT
+    n,r,w - See createAnnulus
+    s - location of the side lobes relative to the center
+    OUTPUT
+    an array n x n
+    '''
+    annulus = createAnnulus(n,r,w);
+    latticeHat = np.zeros_like(annulus);
+    center = n//2 + 1
+    columns = (center-s,center,center+s)
+    latticeHat[:,columns] = annulus[:,columns]
+    return latticeHat;
 
 def doConventionalScan(Fsqmod,Lsqmod):
     '''Simulate Conventional digital scanning / dithering
@@ -120,7 +138,7 @@ def doFieldSynthesisLineScan(F_hat,L_hat):
 
     return fieldSynthesis
 
-def demoFieldSynthesis(animate=False):
+def demoFieldSynthesis(animate=False,F_hat=None):
     '''Demonstrate Field Synthesis Method with Plots
         INPUT
          animate- boolean, if true, animate the figure
@@ -130,11 +148,18 @@ def demoFieldSynthesis(animate=False):
     # plt.rc('text', usetex=True)
 #    if animate:
 #        plt.ion()
+    plt.style.use('dark_background');
+    colormap = 'gnuplot2'
 
     fig, ax = plt.subplots(2,4,sharey=True,sharex=True,figsize=(16,9))
 
+    # Style the figure
+    #fig.patch.set_facecolor('black');
+
     # Create F, the illumination pattern
-    F_hat = createAnnulus()
+    if F_hat is None:
+        F_hat = createAnnulus()
+#        F_hat = createLatticeHat();
     F_hat = ft.ifftshift(F_hat)
     F = ft.ifft2(F_hat)
     F = ft.fftshift(F)
@@ -143,9 +168,9 @@ def demoFieldSynthesis(animate=False):
 
     #plt.figure()
     #plt.title('F')
-    #plt.imshow(Fsqmod, cmap='plasma')
+    #plt.imshow(Fsqmod, cmap=colormap)
     #plt.show(block=False)
-    ax[0,0].imshow(Fsqmod, cmap='plasma')
+    ax[0,0].imshow(Fsqmod, cmap=colormap)
     ax[0,0].set_title('|F(x,z)|^2')
 
     # Create L, the scan profile
@@ -158,61 +183,83 @@ def demoFieldSynthesis(animate=False):
     Lsqmod = L*np.conj(L)
     # This is the line scan profile used in Field Synthesis
     L_hat = ft.fftshift(ft.fft2(ft.ifftshift(L)))
+    L_hat_abs = np.abs(L_hat)
 
-    ax[0,1].imshow(L, cmap='plasma')
+    ax[0,1].imshow(L, cmap=colormap)
     ax[0,1].set_title('$ L(x)\delta(z) $')
 
-    ax[0,2].imshow(Lsqmod, cmap='plasma')
+    ax[0,2].imshow(Lsqmod, cmap=colormap)
     ax[0,2].set_title('$ |L(x)\delta(z)|^2 $')
 
-    ax[0,3].imshow(np.abs(L_hat), cmap='plasma')
+    ax[0,3].imshow(np.abs(L_hat), cmap=colormap)
     ax[0,3].set_title('$\hat{L}(k_x) $')
 
     # Manually scan by shifting Fsqmod and multiplying by Lsqmod
     scanned = doConventionalScan(Fsqmod,Lsqmod)
 
-    ax[1,0].imshow(scanned, cmap='plasma')
+    ax[1,0].imshow(scanned, cmap=colormap)
     ax[1,0].set_title('Scanned: $ \sum_{x\'} |F(x\',z)|^2|L(x-x\')|^2 $')
 
     # Manually scanning is a convolution operation
     # There are potentially boundary effects here
     convolved = sig.fftconvolve(Fsqmod,Lsqmod,'same')
 
-    ax[1,1].imshow(convolved, cmap='plasma')
-    ax[1,1].set_title('Convolved: $ |F(x,z)|^2 ** |L(x)\delta(z)|^2 $')
+    ax[1,1].imshow(convolved, cmap=colormap)
+    ax[1,1].set_title('Conv: $ |F(x,z)|^2 ** |L(x)\delta(z)|^2 $')
 
     # This manual implementation of Fourier transform based convolution
     # actually does circular convolution
     convolvedft = ft.fftshift(ft.fft2(ft.ifft2(ft.ifftshift(Fsqmod)) *ft.ifft2(ft.ifftshift(Lsqmod))))
     convolvedft = np.real(convolvedft)
 
-    ax[1,2].imshow(convolvedft, cmap='plasma')
-    ax[1,2].set_title(r'Convolved FT: $ \mathcal{F}^{-1} \{ \mathcal{F}\{|F|^2\} \mathcal{F}\{|L(x)\delta(z)|^2\} \} $')
+    ax[1,2].imshow(convolvedft, cmap=colormap)
+    ax[1,2].set_title(r'Conv. FT: $ \mathcal{F}^{-1} \{ \mathcal{F}\{|F|^2\} \mathcal{F}\{|L(x)\delta(z)|^2\} \} $')
 
     # Do the Field Synthesis method of performing a line scan at the back focal plane
     fieldSynthesis = doFieldSynthesisLineScan(F_hat,L_hat)
 
-    ax[1,3].imshow(fieldSynthesis, cmap='plasma')
-    ax[1,3].set_title('Field Synthesis: $ \sum_a |\mathcal{F}^{-1}\{ \hat{F}(k_x,k_z)\hat{L}(k_x-a) \}|^2 $')
+    ax[1,3].imshow(fieldSynthesis, cmap=colormap)
+    ax[1,3].set_title('FS: $ \sum_a |\mathcal{F}^{-1}\{ \hat{F}(k_x,k_z)\hat{L}(k_x-a) \}|^2 $')
+#    pdb.set_trace()
     if animate:
         L2 = Lsqmod[Lsqmod.shape[0]//2,]
         maxL2 = np.max(L2)
         frames = np.flatnonzero(L2 > maxL2/100)
-        ani = animation.FuncAnimation(fig,updateFig,frames,fargs=(ax,frames[0],Fsqmod,L2),repeat=True,interval=100)
+        #ani = animation.FuncAnimation(fig,scanUpdate,frames,fargs=(ax,frames[0],Fsqmod,L2),repeat=True,interval=100)
 
         A = ft.fftshift(F_hat)
-        fs_frames = np.flatnonzero(np.any(A,0))
-        ani2 = animation.FuncAnimation(fig,fsUpdate,fs_frames,fargs=(ax,fs_frames[0],A,L_hat),repeat=True)
+        maxL_hat = np.max(L_hat_abs[0,])
+        L_hat_idx = np.transpose(np.asmatrix(np.flatnonzero(L_hat_abs[0,] > maxL_hat/1e3))) - center
+        fs_frames = np.asmatrix(np.flatnonzero(np.any(A,0)))
+        fs_frames = fs_frames + L_hat_idx 
+        fs_frames = fs_frames.flatten()
+        fs_frames = np.unique(np.asarray(fs_frames)).flatten()
+        #ani2 = animation.FuncAnimation(fig,fsUpdate,fs_frames,fargs=(ax,fs_frames[0],A,L_hat),repeat=True,interval=100)
+        lcm = np.lcm(len(frames),len(fs_frames))
+        anilcm = animation.FuncAnimation(fig,commonUpdate,lcm, \
+                fargs=(ax[(0,1),0],frames,Fsqmod,L2, \
+                       ax[(0,1),3],fs_frames,A,L_hat), \
+                repeat=True,interval=100)
+        return fig,ax,anilcm
 
-        ani.save('test.mp4')
-        ani2.save('test2.mp4')
-    plt.show()
-    plt.pause(0.001)
-    
+    return fig,ax
 
-def updateFig(frame,ax,first,Fsqmod,L2):
-    Fsqmod_im = ax[0,0].get_images()[0]
-    im = ax[1,0].get_images()[0]
+
+def commonUpdate(frame,ax,frames,Fsqmod,L2,fs_ax,fsFrames,A,L_hat):
+    '''commonUpdate updates animation for scanning and
+    field synthesis
+    '''
+    f1 = frames[frame%len(frames)]
+    f2 = fsFrames[frame%len(fsFrames)]
+    im,Fsqmod_im   = scanUpdate(f1,ax,frames[0],Fsqmod,L2)
+    L_hat_im,fs_im = fsUpdate(f2,fs_ax,fsFrames[0],A,L_hat)
+    return im,Fsqmod_im,L_hat_im,fs_im
+
+def scanUpdate(frame,ax,first,Fsqmod,L2):
+    '''scanUpdate updates scanning for animation
+    '''
+    Fsqmod_im = ax[0].get_images()[0]
+    im = ax[1].get_images()[0]
     global I
     if frame==first:
         I = np.zeros_like(Fsqmod)
@@ -225,9 +272,11 @@ def updateFig(frame,ax,first,Fsqmod,L2):
 
 
 def fsUpdate(frame,ax,first,A,L_hat):
+    '''fsUpdate updates field synthesis for animation
+    '''
     global FS
-    L_hat_im = ax[0,3].get_images()[0]
-    fs_im = ax[1,3].get_images()[0]
+    L_hat_im = ax[0].get_images()[0]
+    fs_im = ax[1].get_images()[0]
     if frame==first:
         FS = np.zeros(A.shape)
 
@@ -243,4 +292,32 @@ def fsUpdate(frame,ax,first,A,L_hat):
 
 
 if __name__ == "__main__":
-    demoFieldSynthesis(True)
+    masks = {'bessel':createAnnulus,
+            'b':createAnnulus,
+            'hexagonal':createLatticeHat,
+            'h':createLatticeHat,
+            'square':lambda:createLatticeHat(s=30),
+            's':lambda:createLatticeHat(s=30)}
+
+    parser = argparse.ArgumentParser(description='Demonstrate Field Synthesis Light-sheet Microscopy')
+    parser.add_argument('--animate','-a',action='store_true',default=True)
+    parser.add_argument('--no-animate','-na',dest='animate',action='store_false')
+    parser.add_argument('--movie','-m')
+    parser.add_argument('--show','-s',action='store_true',default=True)
+    parser.add_argument('--no-show','-ns',dest='show',action='store_false')
+    parser.add_argument('--mask',default='bessel',choices=masks)
+    args = parser.parse_args()
+
+    pdb.set_trace()
+
+    mask = masks[args.mask]()
+
+
+    fig,ax,anilcm = demoFieldSynthesis(args.animate,mask)
+
+    if args.movie:
+        anilcm.save(args.movie)
+
+    if args.show:
+        plt.show()
+        plt.pause(0.0001)
