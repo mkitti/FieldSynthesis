@@ -362,6 +362,7 @@ def retoMovie(animate=False,F_hat=None):
         nFrames = max(len(frames),len(fs_frames))
         updateMethod = commonMaxUpdate
         anilcm = animation.FuncAnimation(fig,updateMethod,nFrames, \
+                init_func=initCommonDraw, \
                 fargs=(ax[0,(1,2)],frames,Fsqmod,L2, \
                        ax[1,(0,2,1)],fs_frames,A,L_hat), \
                 repeat=True,interval=100)
@@ -393,7 +394,14 @@ def commonMaxUpdate(frame,ax,frames,Fsqmod,L2,fs_ax,fsFrames,A,L_hat):
         scan_out  = scanUpdate(frames[frame],ax,frames[0],Fsqmod,L2)
     if frame < len(fsFrames):
         fs_out = fsUpdate(fsFrames[frame],fs_ax,fsFrames[0],A,L_hat)
+    print('\b\b\b%03d' % frame,end='',flush=True)
+    if frame==max(len(frames),len(fsFrames))-1:
+        print('')
     return scan_out + fs_out
+
+def initCommonDraw():
+    print('Frame 000',end='')
+    return None
 
 def scanUpdate(frame,ax,first,Fsqmod,L2):
     '''scanUpdate updates scanning for animation
@@ -434,15 +442,15 @@ def fsUpdate(frame,ax,first,A,L_hat):
     else:
         return L_hat_im,fs_im
 
-def applyRetoStyle():
+def applyRetoStyle(cmap='gnuplot2'):
     '''applyRetoStyle uses white text on a black background
     and does not show any frames, ticks, or labels'''
-    plt.style.use('dark_background');
-    mpl.rcParams['axes.edgecolor'] = 'black';
-    mpl.rcParams['xtick.color'] = 'black';
-    mpl.rcParams['ytick.color'] = 'black';
-    mpl.rcParams['axes.labelsize'] = 'large';
-    mpl.rcParams['image.cmap'] = 'gnuplot2'
+    plt.style.use('dark_background')
+    mpl.rcParams['axes.edgecolor'] = 'black'
+    mpl.rcParams['xtick.color'] = 'black'
+    mpl.rcParams['ytick.color'] = 'black'
+    mpl.rcParams['axes.labelsize'] = 'large'
+    mpl.rcParams['image.cmap'] = cmap
 #    mpl.rcParams['image.interpolation'] = 'bicubic';
 
 
@@ -457,19 +465,23 @@ if __name__ == "__main__":
             's':lambda:createLatticeHat(s=30)}
 
     parser = argparse.ArgumentParser(description='Demonstrate Field Synthesis Light-sheet Microscopy')
-    parser.add_argument('--animate','-a',action='store_true',default=True)
-    parser.add_argument('--no-animate','-na',dest='animate',action='store_false')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--animate','-a',action='store_true',default=True)
+    group.add_argument('--no-animate','-na',dest='animate',action='store_false')
     parser.add_argument('--movie','-m')
-    parser.add_argument('--show','-s',action='store_true',default=True)
-    parser.add_argument('--no-show','-ns',dest='show',action='store_false')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--show','-s',action='store_true',default=True)
+    group.add_argument('--no-show','-ns',dest='show',action='store_false')
     parser.add_argument('--mask',default='bessel',choices=masks)
     parser.add_argument('--zoom',default=1.0,type=float)
-    parser.add_argument('--proof',action='store_true',default=True)
-    parser.add_argument('--reto',action='store_true',default=False)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--proof',action='store_true',default=True)
+    group.add_argument('--reto',action='store_true',default=False)
+    parser.add_argument('--cmap',default='gnuplot2')
     parser.add_argument('--anti',action='store_true',default=False)
+    parser.add_argument('--size',nargs=2,type=float,default=None)
+    parser.add_argument('--twitter',action='store_true',default=False)
     args = parser.parse_args()
-
-    #pdb.set_trace()
 
     mask = masks[args.mask]()
 
@@ -478,13 +490,23 @@ if __name__ == "__main__":
         center = mask.shape[0]//2
         mask[center+1:,] = -mask[center+1:,]
 
+    if args.twitter:
+        args.reto = True
+        if args.size is None:
+            args.size = [6.4,4.8]
+        if args.movie is None:
+            args.movie = 'twitter.gif'
+        if args.zoom is 1.0:
+            args.zoom = 2.5
+
     # pdb.set_trace()
  
     if args.reto:
-        applyRetoStyle()
+        applyRetoStyle(args.cmap)
         fig,ax,anilcm = retoMovie(args.animate,mask)
         if args.anti:
-            darkcm = colors.ListedColormap([1,1,1,2] - cm.get_cmap('PiYG')(np.linspace(0,1,256)))
+            darkcm = colors.ListedColormap([1,1,1,2] - \
+                     cm.get_cmap('PiYG')(np.linspace(0,1,256)))
             ax[0,0].get_images()[0].set_cmap(darkcm)
     elif args.proof:
         fig,ax,anilcm = demoFieldSynthesis(args.animate,mask)
@@ -496,13 +518,19 @@ if __name__ == "__main__":
         zf = 0.5-0.5/args.zoom
         plt.axis((xmin+xr*zf,xmax-xr*zf,ymin+yr*zf,ymax-yr*zf))
 
+    if args.size is not None:
+        fig.set_size_inches(args.size)
+
     #for axx in ax.flatten():
     #    plt.setp(axx.spines.values(),color='black')
     #    plt.setp([axx.get_xticklines(), axx.get_yticklines()],color='black')
     #    plt.setp([axx.get_xticklabels(), axx.get_yticklabels()],color='black')
 
     if args.movie and anilcm is not None:
-        anilcm.save(args.movie)
+        if args.movie.endswith('.gif'):
+            anilcm.save(args.movie,writer='imagemagick')
+        else:
+            anilcm.save(args.movie)
 
     if args.show:
         plt.show()
